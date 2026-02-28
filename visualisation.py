@@ -79,9 +79,7 @@ print(f"Total signal rows: {signal_df.count():,}")
 
 # COMMAND ----------
 
-# Top 3 tickers by volume — one candlestick chart each
-# mplfinance handles its own figure internally, so we plot each ticker
-# separately and save. Databricks renders each inline.
+# Top 3 tickers by volume
 top_tickers = tickers[:3]
 
 for ticker in top_tickers:
@@ -97,7 +95,8 @@ for ticker in top_tickers:
     ticker_pd = ticker_pd.set_index("trade_date")
     ticker_pd.columns = ["Open", "High", "Low", "Close", "Volume"]
 
-    mpf.plot(
+    # mplfinance must manage its own figure to render inline in Databricks
+    fig, axlist = mpf.plot(
         ticker_pd,
         type="candle",
         volume=True,
@@ -105,10 +104,12 @@ for ticker in top_tickers:
         style="charles",
         figsize=(16, 8),
         warn_too_much_data=500,
-        savefig=f"/tmp/candlestick_{ticker}.png",
+        returnfig=True,
     )
+    display(fig)
+    plt.close(fig)
 
-print(f"Candlestick charts saved for: {top_tickers}")
+print(f"Candlestick charts rendered for: {top_tickers}")
 
 # COMMAND ----------
 
@@ -158,8 +159,8 @@ for ax, ticker in zip(axes, plot_tickers):
 
     ax.set_ylim(0, 100)
     ax.set_ylabel("RSI")
-    ax.set_title(f"{ticker} — RSI with Signal Bands", fontsize=12, fontweight="bold")
-    ax.legend(loc="upper right", fontsize=8)
+    ax.set_title(f"{ticker} — RSI with Signal Bands", fontsize=14, fontweight="bold")
+    ax.legend(loc="upper right", fontsize=12)
 
 axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
 axes[-1].xaxis.set_major_locator(mdates.MonthLocator(interval=2))
@@ -180,17 +181,12 @@ plt.show()
 
 # COMMAND ----------
 
-# Define colour map for signal regimes
-regime_colours = {
-    "STRONG_BUY": "#1B5E20",
-    "BUY": "#43A047",
-    "LEAN_BUY": "#81C784",
-    "NEUTRAL": "#9E9E9E",
-    "LEAN_SELL": "#EF9A9A",
-    "SELL": "#E53935",
-    "STRONG_SELL": "#B71C1C",
-    "UNKNOWN": "#BDBDBD",
-}
+# Regime colours and ordering (bearish → bullish)
+from matplotlib.colors import ListedColormap, BoundaryNorm
+
+regime_order = ["STRONG_BUY", "BUY", "LEAN_BUY", "NEUTRAL", "LEAN_SELL", "SELL", "STRONG_SELL"]
+regime_colors_list = ["#1B5E20", "#43A047", "#81C784", "#9E9E9E", "#EF9A9A", "#E53935", "#B71C1C"]
+regime_to_num = {r: i for i, r in enumerate(regime_order)}
 
 regime_pd = (
     signal_df
@@ -200,44 +196,55 @@ regime_pd = (
 )
 regime_pd["trade_date"] = pd.to_datetime(regime_pd["trade_date"])
 
-# Assign numeric y-position per ticker
-ticker_positions = {t: i for i, t in enumerate(sorted(regime_pd["ticker"].unique()))}
-regime_pd["y_pos"] = regime_pd["ticker"].map(ticker_positions)
+# Build a matrix: rows = tickers, columns = dates, values = regime index
+sorted_tickers = sorted(regime_pd["ticker"].unique())
+sorted_dates = sorted(regime_pd["trade_date"].unique())
+date_to_idx = {d: i for i, d in enumerate(sorted_dates)}
+ticker_to_idx = {t: i for i, t in enumerate(sorted_tickers)}
 
-fig, ax = plt.subplots(figsize=(18, 6))
+matrix = np.full((len(sorted_tickers), len(sorted_dates)), np.nan)
+for _, row in regime_pd.iterrows():
+    ti = ticker_to_idx[row["ticker"]]
+    di = date_to_idx[row["trade_date"]]
+    matrix[ti, di] = regime_to_num.get(row["signal_regime"], 3)  # default NEUTRAL
 
-# Plot all days as small dots
-for regime, colour in regime_colours.items():
-    mask = regime_pd["signal_regime"] == regime
-    subset = regime_pd[mask]
-    if len(subset) > 0:
-        ax.scatter(
-            subset["trade_date"], subset["y_pos"],
-            c=colour, s=8, alpha=0.4, label=regime, edgecolors="none"
-        )
+cmap = ListedColormap(regime_colors_list)
+bounds = np.arange(-0.5, len(regime_order), 1)
+norm = BoundaryNorm(bounds, cmap.N)
 
-# Highlight regime changes with larger markers
+fig, ax = plt.subplots(figsize=(18, 5))
+ax.imshow(matrix, aspect="auto", cmap=cmap, norm=norm, interpolation="nearest")
+
+# Mark regime changes with black tick marks
 changes = regime_pd[regime_pd["regime_changed"] == True]
-ax.scatter(
-    changes["trade_date"], changes["y_pos"],
-    c=[regime_colours.get(r, "#000") for r in changes["signal_regime"]],
-    s=50, alpha=0.9, edgecolors="black", linewidths=0.5, zorder=5,
-    label=f"Regime Change ({len(changes)} total)"
+for _, row in changes.iterrows():
+    ti = ticker_to_idx[row["ticker"]]
+    di = date_to_idx[row["trade_date"]]
+    ax.plot(di, ti, marker="|", color="black", markersize=12, markeredgewidth=1.5)
+
+# Y-axis: ticker labels
+ax.set_yticks(range(len(sorted_tickers)))
+ax.set_yticklabels(sorted_tickers, fontsize=10)
+
+# X-axis: monthly date labels
+n_labels = min(12, len(sorted_dates))
+date_indices = np.linspace(0, len(sorted_dates) - 1, n_labels).astype(int)
+ax.set_xticks(date_indices)
+ax.set_xticklabels(
+    [sorted_dates[i].strftime("%b %Y") for i in date_indices],
+    fontsize=9, rotation=30, ha="right",
 )
 
-ax.set_yticks(list(ticker_positions.values()))
-ax.set_yticklabels(list(ticker_positions.keys()))
-ax.set_xlabel("Date")
-ax.set_title(f"Signal Regime Changes Over Time — {len(changes)} transitions detected", fontsize=13, fontweight="bold")
-ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+ax.set_title(
+    f"Signal Regime Timeline — {len(changes)} regime changes detected  ( | = transition )",
+    fontsize=14, fontweight="bold",
+)
 
-# Legend (deduplicated)
-handles, labels = ax.get_legend_handles_labels()
-by_label = dict(zip(labels, handles))
-ax.legend(by_label.values(), by_label.keys(), loc="upper left", fontsize=8, ncol=3)
+# Legend below chart
+patches = [mpatches.Patch(color=regime_colors_list[i], label=regime_order[i]) for i in range(len(regime_order))]
+ax.legend(handles=patches, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=7, fontsize=9, frameon=True)
 
-plt.tight_layout()
+fig.subplots_adjust(bottom=0.2)
 plt.savefig("/tmp/regime_changes.png", dpi=150, bbox_inches="tight")
 plt.show()
 
@@ -338,7 +345,7 @@ speedups = ["15x", "4x", "9x", "3.5x", "1.4x", "3x", "—"]
 x = np.arange(len(stages))
 width = 0.35
 
-fig, ax = plt.subplots(figsize=(16, 7))
+fig, ax = plt.subplots(figsize=(16, 8))
 
 bars_broken = ax.bar(x - width / 2, broken_times, width, label="Broken Pipeline",
                      color="#E53935", alpha=0.85, edgecolor="white")
@@ -369,7 +376,7 @@ ax.set_title("Pipeline Performance: Broken vs Fixed — 183s → 47s (4x speedup
 ax.set_xticks(x)
 ax.set_xticklabels(stages, fontsize=9)
 ax.legend(fontsize=11, loc="upper right")
-ax.set_ylim(0, max(broken_times) * 1.2)
+ax.set_ylim(0, max(broken_times) * 1.25)
 
 # Total bar at the right
 ax2_x = len(stages)
@@ -381,9 +388,9 @@ ax.annotate("4x", xy=(ax2_x, sum(broken_times) + 5), ha="center", fontsize=13, f
 
 new_labels = stages + ["TOTAL"]
 ax.set_xticks(list(x) + [ax2_x])
-ax.set_xticklabels(new_labels, fontsize=9)
+ax.set_xticklabels(new_labels, fontsize=11)
 
-plt.tight_layout()
+fig.subplots_adjust(bottom=0.15, top=0.92)
 plt.savefig("/tmp/performance_comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
 
@@ -430,13 +437,13 @@ for i, txt in enumerate(shuffle_data["What Changed"]):
     ax.annotate(
         txt,
         xy=(x[i], max(shuffle_data["Broken (Shuffles)"][i], shuffle_data["Fixed (Shuffles)"][i]) + 0.15),
-        ha="center", va="bottom", fontsize=7.5,
+        ha="center", va="bottom", fontsize=9.5,
         color="#37474F", style="italic",
     )
 
 ax.set_ylabel("Number of Exchange (Shuffle) Nodes", fontsize=11)
 ax.set_title("Shuffle Reduction per Stage — 10 shuffles → 4 (from Physical Plan Analysis)",
-             fontsize=13, fontweight="bold")
+             fontsize=14, fontweight="bold")
 ax.set_xticks(x)
 ax.set_xticklabels(shuffle_data["Stage"], fontsize=10)
 ax.legend(fontsize=11, loc="upper right")
