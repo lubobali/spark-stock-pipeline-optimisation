@@ -18,6 +18,8 @@ The pipeline reads minute-level stock data (10 tickers, ~270 trading days, 1,719
 
 The pipeline produces correct results, but is riddled with performance anti-patterns that would make it take hours (or OOM the cluster) on a production dataset.
 
+![Candlestick OHLCV](images/candlestick_ohlcv.png)
+
 ---
 
 ## Results: Before vs After
@@ -35,7 +37,7 @@ All timings measured on Databricks Serverless compute.
 | 7 | Summary Stats | 1s | 1s | — |
 | **Total** | | **~183s** | **~47s** | **~4x** |
 
-<!-- ![Performance Comparison](images/performance_comparison.png) -->
+![Performance Comparison](images/performance_comparison.png)
 
 ---
 
@@ -51,6 +53,8 @@ All timings measured on Databricks Serverless compute.
 | 6 | 5 | Re-read table for 3rd time + self-join with `date_add` (misses weekends/holidays) | Reuse `daily_indicators` + `F.lag()` window (handles date gaps correctly) | 1.4x faster |
 | 7 | 6 | `repartition(500)` then `partitionBy` into 70 directories (up to 35K tiny files) | `coalesce(10)` — narrow transformation, no shuffle, reasonable file sizes | 3x faster |
 | 8 | 7 | Global configs: 500 shuffle partitions, broadcast disabled, AQE disabled | Right-sized to 20 partitions, defaults restored (broadcast + AQE enabled) | Cascading |
+
+![Shuffle Reduction](images/shuffle_reduction.png)
 
 ---
 
@@ -125,6 +129,8 @@ F.sort_array(collect_list(F.struct("timestamp", "close"))).alias("closes_struct"
 # Then: F.transform(col("closes_struct"), lambda x: x["close"])
 ```
 
+![RSI with Signal Bands](images/rsi_signals.png)
+
 ### Window LAG Over Self-Join for Date Gaps
 
 The broken pipeline uses `date_add(trade_date, 1)` to find the previous day's signal. But stock markets skip weekends and holidays — Friday + 1 = Saturday, which doesn't exist.
@@ -153,6 +159,8 @@ daily_df.join(avg_volume_df, on="ticker")
 # Right — 10 rows broadcast to every executor, zero shuffle
 daily_df.join(F.broadcast(avg_volume_df), on="ticker")
 ```
+
+![Correlation Heatmap](images/correlation_heatmap.png)
 
 ### Why Python UDFs Break Catalyst
 
@@ -187,26 +195,7 @@ This project isn't just about speed. Two data correctness bugs were found:
 | Missed transitions | 268 (26%) | 0 |
 | Root cause | `date_add` skips weekends | `F.lag()` uses row order |
 
----
-
-## Visualisations
-
-Generated from the pipeline output on Databricks using interactive **Plotly** charts. See `visualisation.py` for the notebook.
-
-![Candlestick OHLCV](images/candlestick_ohlcv.png)
-![RSI with Signal Bands](images/rsi_signals.png)
 ![Regime Changes Timeline](images/regime_changes.png)
-![Correlation Heatmap](images/correlation_heatmap.png)
-![Performance Comparison](images/performance_comparison.png)
-![Shuffle Reduction](images/shuffle_reduction.png)
-
-Charts included:
-- **Candlestick OHLCV** — daily price action with volume bars (interactive zoom/hover)
-- **RSI with Signal Bands** — momentum oscillator with 30/70 overbought/oversold zones
-- **Regime Changes Timeline** — signal transitions over time per ticker (heatmap with hover)
-- **Cross-Ticker Correlation Heatmap** — which stocks move together
-- **Performance Before vs After** — stage-by-stage timing comparison
-- **Shuffle Reduction** — 10 Exchange nodes (broken) vs 4 (fixed)
 
 ---
 
