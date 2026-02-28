@@ -196,17 +196,15 @@ regime_pd = (
 )
 regime_pd["trade_date"] = pd.to_datetime(regime_pd["trade_date"])
 
-# Build a matrix: rows = tickers, columns = dates, values = regime index
-sorted_tickers = sorted(regime_pd["ticker"].unique())
-sorted_dates = sorted(regime_pd["trade_date"].unique())
-date_to_idx = {d: i for i, d in enumerate(sorted_dates)}
+# Build a matrix via pivot — avoids type mismatch between numpy/pandas dates
+regime_pd["regime_num"] = regime_pd["signal_regime"].map(regime_to_num).fillna(3).astype(float)
+matrix_df = regime_pd.pivot_table(index="ticker", columns="trade_date", values="regime_num", aggfunc="first")
+matrix_df = matrix_df.sort_index()
+sorted_tickers = list(matrix_df.index)
+sorted_dates = list(matrix_df.columns)
 ticker_to_idx = {t: i for i, t in enumerate(sorted_tickers)}
-
-matrix = np.full((len(sorted_tickers), len(sorted_dates)), np.nan)
-for _, row in regime_pd.iterrows():
-    ti = ticker_to_idx[row["ticker"]]
-    di = date_to_idx[row["trade_date"]]
-    matrix[ti, di] = regime_to_num.get(row["signal_regime"], 3)  # default NEUTRAL
+date_to_idx = {d: i for i, d in enumerate(sorted_dates)}
+matrix = matrix_df.values
 
 cmap = ListedColormap(regime_colors_list)
 bounds = np.arange(-0.5, len(regime_order), 1)
@@ -218,9 +216,10 @@ ax.imshow(matrix, aspect="auto", cmap=cmap, norm=norm, interpolation="nearest")
 # Mark regime changes with black tick marks
 changes = regime_pd[regime_pd["regime_changed"] == True]
 for _, row in changes.iterrows():
-    ti = ticker_to_idx[row["ticker"]]
-    di = date_to_idx[row["trade_date"]]
-    ax.plot(di, ti, marker="|", color="black", markersize=12, markeredgewidth=1.5)
+    ti = ticker_to_idx.get(row["ticker"])
+    di = date_to_idx.get(row["trade_date"])
+    if ti is not None and di is not None:
+        ax.plot(di, ti, marker="|", color="black", markersize=12, markeredgewidth=1.5)
 
 # Y-axis: ticker labels
 ax.set_yticks(range(len(sorted_tickers)))
