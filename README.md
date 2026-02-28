@@ -191,23 +191,22 @@ This project isn't just about speed. Two data correctness bugs were found:
 
 ## Visualisations
 
-Generated from the pipeline output on Databricks. See `visualisation.py` for the notebook.
+Generated from the pipeline output on Databricks using interactive **Plotly** charts. See `visualisation.py` for the notebook.
 
-<!-- Uncomment these after running the notebook and adding screenshots:
 ![Candlestick OHLCV](images/candlestick_ohlcv.png)
 ![RSI with Signal Bands](images/rsi_signals.png)
 ![Regime Changes Timeline](images/regime_changes.png)
 ![Correlation Heatmap](images/correlation_heatmap.png)
 ![Performance Comparison](images/performance_comparison.png)
--->
+![Shuffle Reduction](images/shuffle_reduction.png)
 
 Charts included:
-- **Candlestick OHLCV** — daily price action with volume bars (mplfinance)
+- **Candlestick OHLCV** — daily price action with volume bars (interactive zoom/hover)
 - **RSI with Signal Bands** — momentum oscillator with 30/70 overbought/oversold zones
-- **Regime Changes Timeline** — signal transitions over time per ticker
-- **Cross-Ticker Correlation Heatmap** — which stocks move together (seaborn)
+- **Regime Changes Timeline** — signal transitions over time per ticker (heatmap with hover)
+- **Cross-Ticker Correlation Heatmap** — which stocks move together
 - **Performance Before vs After** — stage-by-stage timing comparison
-- **Shuffle Reduction** — 8 Exchange nodes (broken) vs 3 (fixed)
+- **Shuffle Reduction** — 10 Exchange nodes (broken) vs 4 (fixed)
 
 ---
 
@@ -220,8 +219,7 @@ Charts included:
 | **Databricks** | Compute platform (Serverless) |
 | **Unity Catalog** | Data governance and managed tables |
 | **Catalyst Optimizer** | Query planning, codegen, predicate pushdown |
-| **matplotlib / seaborn** | Custom visualisations |
-| **mplfinance** | Candlestick charts |
+| **Plotly** | Interactive visualisations (candlestick, heatmaps, bar charts) |
 
 ---
 
